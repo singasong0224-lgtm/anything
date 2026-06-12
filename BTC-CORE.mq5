@@ -636,7 +636,8 @@ void UpdateTriggerSignal()
    double rsi[];
    ArraySetAsSeries(rsi, true);
    // shift0(形成中) / shift1(確定) / shift2(確定前) を取得
-   if(CopyBuffer(g_RSI_Handle, 0, 0, 3, rsi) <= 0)
+   // 3本揃わない場合(起動直後/ヒストリー不足)は rsi[2] 範囲外を避けて中断
+   if(CopyBuffer(g_RSI_Handle, 0, 0, 3, rsi) < 3)
    {
       g_TriggerSignal = 0;
       return;
