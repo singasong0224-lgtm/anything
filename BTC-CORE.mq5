@@ -77,7 +77,7 @@ input int    MaxSkipBonus       = 2;         // 最大加算回数(0=無効)
 //=== ロット設定 ===
 input group "===== ロット設定 ====="
 input double StartLot      = 0.01;   // 1段目ロット(自動モード)
-input double LotMultiplier = 1.5;    // ナンピン倍率(1.0=均等 / 2.0=完全マーチン)
+input double LotMultiplier = 1.3;    // ナンピン倍率(1.0=均等 / 2.0=完全マーチン)
 input double LotStep       = 0.01;   // ロット刻み幅(丸め単位)
 
 //=== TP設定(ATR連動・加重平均から) ===
