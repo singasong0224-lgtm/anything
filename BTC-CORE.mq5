@@ -142,10 +142,10 @@ input bool 日曜日稼働 = true;    // 日曜日 取引ON/OFF
 input group "===== 時間フィルター(日本時間) ====="
 // ※ XM・HFMの夏時間/冬時間は自動切替されます(手動設定不要)
 // ※ 0:00〜24:00の範囲で設定してください(24:00は翌0:00扱い)
-input bool UseTimeFilter      = true;    // 時間フィルター使用
-input int  TradeStartHour     = 9;       // 取引開始時刻(日本時間 時)
+input bool UseTimeFilter      = false;   // 時間フィルター使用(false=24時間稼働)
+input int  TradeStartHour     = 0;       // 取引開始時刻(日本時間 時)
 input int  TradeStartMin      = 0;       // 取引開始時刻(日本時間 分)
-input int  TradeEndHour       = 16;      // 取引終了時刻(日本時間 時) ※24=翌0時
+input int  TradeEndHour       = 24;      // 取引終了時刻(日本時間 時) ※24=翌0時
 input int  TradeEndMin        = 0;       // 取引終了時刻(日本時間 分)
 input bool NanpinOutsideHours = false;   // 時間外/停止曜日でもナンピン許可
 
