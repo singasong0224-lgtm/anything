@@ -30,12 +30,23 @@
     max-width: 520px;
     margin: 0 auto;
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
+  }
+  #stage {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
   }
   canvas {
     display: block;
@@ -134,11 +145,69 @@
     backdrop-filter: blur(4px);
   }
   .icon-btn:active { transform: translateY(1px); }
+
+  /* On-screen controller (touch devices only) */
+  #touch-controls {
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .pad { display: flex; gap: 8px; }
+  .ctl {
+    width: clamp(46px, 14.5vw, 70px);
+    height: clamp(46px, 13vw, 62px);
+    border-radius: 14px;
+    border: 1px solid var(--panel-line);
+    background: rgba(20, 28, 38, 0.85);
+    color: var(--ink);
+    font-size: clamp(18px, 6vw, 26px);
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 0.08s ease, transform 0.05s ease;
+  }
+  .ctl:active {
+    background: rgba(95, 208, 200, 0.22);
+    border-color: rgba(95, 208, 200, 0.55);
+    transform: translateY(1px);
+  }
+  .ctl-hard {
+    background: rgba(95, 208, 200, 0.14);
+    border-color: rgba(95, 208, 200, 0.4);
+    margin-left: 4px;
+  }
 </style>
 </head>
 <body>
 <div id="zd-root">
-  <canvas id="zd-canvas"></canvas>
+  <div id="stage">
+    <canvas id="zd-canvas"></canvas>
+  </div>
+
+  <!-- On-screen controller (shown only on touch devices while playing) -->
+  <div id="touch-controls" class="hidden">
+    <div class="pad">
+      <button class="ctl" data-act="left" aria-label="左へ">◀</button>
+      <button class="ctl" data-act="right" aria-label="右へ">▶</button>
+      <button class="ctl" data-act="soft" aria-label="高速落下">▼</button>
+    </div>
+    <div class="pad">
+      <button class="ctl" data-act="rotL" aria-label="左回転">↺</button>
+      <button class="ctl" data-act="rotR" aria-label="右回転">↻</button>
+      <button class="ctl ctl-hard" data-act="hard" aria-label="一気に落とす">⤓</button>
+    </div>
+  </div>
 
   <!-- Title -->
   <div class="overlay" id="overlay-title">
@@ -636,12 +705,15 @@
   let dpr = 1;
   let viewScale = 1;
 
+  const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+  const stageEl = document.getElementById("stage");
+
   function resize() {
-    const root = document.getElementById("zd-root");
-    const maxW = Math.min(root.clientWidth, 520) - 0;
-    const availH = window.innerHeight;
-    // Fit the base layout into the available space.
-    const scaleW = maxW / BASE_W;
+    // Fit the base layout into the stage box (the area left above the
+    // on-screen controller). Flexbox owns the box; we just scale to fit it.
+    const availW = Math.min(stageEl.clientWidth, 520) - 8;
+    const availH = stageEl.clientHeight - 8;
+    const scaleW = availW / BASE_W;
     const scaleH = availH / BASE_H;
     viewScale = Math.min(scaleW, scaleH, 1.4);
     if (viewScale <= 0 || !isFinite(viewScale)) viewScale = 1;
@@ -653,6 +725,9 @@
     canvas.style.height = Math.round(BASE_H * viewScale) + "px";
   }
   window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resize, 120);
+  });
 
   // Background ambient particles (purely decorative).
   const ambient = [];
@@ -685,14 +760,21 @@
   const elResultScore = document.getElementById("result-score");
   const elPause = document.getElementById("overlay-pause");
   const elBtnPause = document.getElementById("btn-pause");
+  const elTouch = document.getElementById("touch-controls");
+  const elFooter = document.querySelector(".footer-note");
+  let stopAllTouchRepeats = function () {}; // assigned by bindTouchControls()
 
   function showScreen(s) {
     screen = s;
     paused = false;
+    stopAllTouchRepeats();
     elTitle.classList.toggle("hidden", s !== SCREEN.TITLE);
     elResult.classList.toggle("hidden", s !== SCREEN.RESULT);
     elPause.classList.add("hidden");
     elBtnPause.classList.toggle("hidden", s !== SCREEN.PLAYING);
+    elTouch.classList.toggle("hidden", !(isTouch && s === SCREEN.PLAYING));
+    elFooter.classList.toggle("hidden", s !== SCREEN.TITLE);
+    resize(); // reflow the canvas now that the controller may have appeared
   }
 
   function setPaused(on) {
@@ -701,8 +783,10 @@
     paused = on;
     if (board) board.setSoftDrop(false); // avoid a stuck soft-drop on resume
     keyHeld.down = false;
+    stopAllTouchRepeats();
     elPause.classList.toggle("hidden", !on);
     elBtnPause.classList.toggle("hidden", on); // hide small button while overlay shows
+    elTouch.classList.toggle("hidden", on || !(isTouch && screen === SCREEN.PLAYING));
   }
 
   function startGame() {
@@ -996,6 +1080,8 @@
       if (board.gameOver && !board._ended) {
         board._ended = true;
         elBtnPause.classList.add("hidden");
+        elTouch.classList.add("hidden");
+        stopAllTouchRepeats();
         // brief pause so the final state is visible before the result screen
         setTimeout(endGame, 700);
       }
@@ -1008,7 +1094,60 @@
     requestAnimationFrame(loop);
   }
 
+  // ---- On-screen controller wiring -------------------------------------
+  function bindTouchControls() {
+    const repeatTimers = {};
+    const REPEAT_DELAY = 200; // ms before auto-repeat starts (DAS)
+    const REPEAT_RATE = 70;   // ms between repeats while held (ARR)
+
+    function startRepeat(act, fn) {
+      stopRepeat(act);
+      const tick = function () {
+        fn();
+        repeatTimers[act] = setTimeout(tick, REPEAT_RATE);
+      };
+      repeatTimers[act] = setTimeout(tick, REPEAT_DELAY);
+    }
+    function stopRepeat(act) {
+      if (repeatTimers[act]) { clearTimeout(repeatTimers[act]); delete repeatTimers[act]; }
+    }
+    stopAllTouchRepeats = function () {
+      for (const k in repeatTimers) stopRepeat(k);
+    };
+
+    function press(act) {
+      if (!board || screen !== SCREEN.PLAYING || paused || board.gameOver) return;
+      switch (act) {
+        case "left": board.move(-1); startRepeat(act, function () { board.move(-1); }); break;
+        case "right": board.move(1); startRepeat(act, function () { board.move(1); }); break;
+        case "soft": board.setSoftDrop(true); break;
+        case "rotL": board.rotate(-1); break;
+        case "rotR": board.rotate(1); break;
+        case "hard": board.hardDrop(); break;
+      }
+    }
+    function release(act) {
+      stopRepeat(act);
+      if (act === "soft" && board) board.setSoftDrop(false);
+    }
+
+    elTouch.querySelectorAll(".ctl").forEach(function (btn) {
+      const act = btn.getAttribute("data-act");
+      btn.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        if (btn.setPointerCapture) { try { btn.setPointerCapture(e.pointerId); } catch (_) {} }
+        press(act);
+      });
+      btn.addEventListener("pointerup", function (e) { e.preventDefault(); release(act); });
+      btn.addEventListener("pointercancel", function () { release(act); });
+      btn.addEventListener("lostpointercapture", function () { release(act); });
+      // Block the synthetic mouse/scroll/context events on long press.
+      btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    });
+  }
+
   // ---- Boot ------------------------------------------------------------
+  bindTouchControls();
   resize();
   showScreen(SCREEN.TITLE);
   requestAnimationFrame(loop);
