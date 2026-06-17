@@ -27,7 +27,7 @@
   #zd-root {
     position: relative;
     width: 100%;
-    max-width: 520px;
+    max-width: 560px;
     margin: 0 auto;
     min-height: 100vh;
     min-height: 100dvh;
@@ -57,7 +57,6 @@
     border-radius: 14px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   }
-  /* DOM overlays for crisp text / buttons over the canvas */
   .overlay {
     position: absolute;
     inset: 0;
@@ -156,8 +155,7 @@
     justify-content: space-between;
     gap: 8px;
     padding: 10px 12px;
-    /* Lift the whole controller up off the bottom edge so it's easy to reach.
-       Scales with screen height: taller phones get more lift, short ones keep a minimum. */
+    /* Lift the whole controller up off the bottom edge so it's easy to reach. */
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(26px, 9vh, 84px));
   }
   .pad { display: flex; gap: 8px; align-items: center; }
@@ -185,14 +183,12 @@
     border-color: rgba(95, 208, 200, 0.55);
     transform: translateY(1px);
   }
-  /* Center utility (pause) */
   .ctl-util {
     width: clamp(44px, 12vw, 58px);
     font-size: clamp(14px, 4.4vw, 18px);
     letter-spacing: 0.1em;
     opacity: 0.92;
   }
-  /* Right stack: rotate (highlighted) over drop (prominent) */
   .ctl-rotate {
     width: clamp(66px, 21vw, 94px);
     font-size: clamp(24px, 7.5vw, 32px);
@@ -241,14 +237,19 @@
   <!-- Title -->
   <div class="overlay" id="overlay-title">
     <h1 class="title-name">ZeroDrop</h1>
-    <p class="subtle">同じ色のクリスタルを4つ以上つなげて消す。<br>静かに、集中して。</p>
-    <button class="btn btn-primary" id="btn-start">はじめる</button>
+    <p class="subtle">同じ色のクリスタルを4つ以上つなげて消す。<br>連鎖でおじゃまを送り、相手を埋めろ。</p>
+    <p class="subtle" style="margin-bottom:-6px;">難易度を選んでスタート</p>
+    <div class="row">
+      <button class="btn" data-diff="EASY">EASY</button>
+      <button class="btn btn-primary" data-diff="NORMAL">NORMAL</button>
+      <button class="btn" data-diff="HARD">HARD</button>
+    </div>
     <p class="subtle">← → 移動 ・ ↑/X/Z 回転 ・ ↓ 高速落下 ・ Space 即落下</p>
   </div>
 
   <!-- Result -->
   <div class="overlay hidden" id="overlay-result">
-    <h2 class="result-title" id="result-title">おしまい</h2>
+    <h2 class="result-title" id="result-title">WIN</h2>
     <p class="subtle" id="result-score">スコア 0</p>
     <div class="row">
       <button class="btn btn-primary" id="btn-retry">もう一度</button>
@@ -256,7 +257,7 @@
     </div>
   </div>
 
-  <!-- Pause button (visible only while playing) -->
+  <!-- Pause button (visible only while playing, desktop) -->
   <button class="icon-btn hidden" id="btn-pause" aria-label="一時停止">II</button>
 
   <!-- Pause overlay -->
@@ -269,50 +270,51 @@
     </div>
   </div>
 
-  <div class="footer-note">Phase 1 — core engine</div>
+  <div class="footer-note">Phase 2 — vs CPU</div>
 </div>
 
 <script>
 "use strict";
 (function () {
   // =====================================================================
-  // ZeroDrop — Phase 1: Core engine (single player, no interference)
+  // ZeroDrop — Phase 2: vs CPU (two boards, CPU AI, garbage blocks)
   // Canvas 2D + Vanilla JS. No external libraries.
   // =====================================================================
 
   // ---- Field constants -------------------------------------------------
   const COLS = 6;
   const VISIBLE_ROWS = 12;
-  const HIDDEN_ROWS = 2;            // spawn area above the visible field
-  const ROWS = VISIBLE_ROWS + HIDDEN_ROWS; // internal grid height
-  const CELL = 40;                  // logical cell size in px
+  const HIDDEN_ROWS = 2;
+  const ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
+  const CELL = 40;
   const NUM_COLORS = 5;
+  const SPAWN_COL = 2;
 
-  const SPAWN_COL = 2;              // pivot spawn column (0-indexed)
-
-  // Cell values: 0 = empty, 1..5 = colors. (9 reserved for future ojama.)
   const EMPTY = 0;
+  const OJAMA = 9; // neutral garbage block
 
-  // Color palette: cyan / magenta / yellow / lime / orange (original tones).
   const COLORS = {
     1: { core: "#7ff0ec", edge: "#1fb9b0", glow: "#9ffff9" }, // cyan
     2: { core: "#f58ad6", edge: "#c2389b", glow: "#ffb0e6" }, // magenta
     3: { core: "#f6e07a", edge: "#caa023", glow: "#fff0a8" }, // yellow
     4: { core: "#a7e87a", edge: "#5fae2f", glow: "#c8ffa0" }, // lime
     5: { core: "#f6a96a", edge: "#cc6a1f", glow: "#ffc999" }, // orange
+    9: { core: "#7c8694", edge: "#454e5a", glow: "#9aa4b2" }, // ojama (gray)
   };
 
   // ---- Timing ----------------------------------------------------------
-  const GRAVITY_MS = 650;           // time per 1-row natural fall
-  const SOFT_DROP_MS = 45;          // fall time while soft dropping
-  const LOCK_DELAY_MS = 0;          // (kept 0 in Phase 1 for crisp feel)
-  const CLEAR_FLASH_MS = 330;       // flash before clearing a group
-  const SETTLE_PAUSE_MS = 110;      // small pause between chain steps
+  const GRAVITY_MS = 650;
+  const SOFT_DROP_MS = 45;
+  const CLEAR_FLASH_MS = 330;
+  const SETTLE_PAUSE_MS = 110;
   const SPAWN_PAUSE_MS = 90;
+  const GARBAGE_PAUSE_MS = 220;
+
+  // ---- Garbage tuning --------------------------------------------------
+  const GARBAGE_RATE = 70;   // score per 1 garbage block (large = fewer)
+  const MAX_GARBAGE_DROP = 30; // cap garbage dropped per turn (5 rows)
 
   // ---- Geometry helpers ------------------------------------------------
-  // Orientation of the satellite relative to the pivot.
-  // 0 = up, 1 = right, 2 = down, 3 = left
   function childOffset(orient) {
     switch (orient & 3) {
       case 0: return { dr: -1, dc: 0 };
@@ -321,61 +323,155 @@
       default: return { dr: 0, dc: -1 };
     }
   }
+  function randColor() { return 1 + Math.floor(Math.random() * NUM_COLORS); }
 
-  function randColor() {
-    return 1 + Math.floor(Math.random() * NUM_COLORS);
+  // ---- Pure grid helpers (used by the CPU's look-ahead simulation) -----
+  function cloneGrid(grid) { return grid.map(function (row) { return row.slice(); }); }
+
+  function gridApplyGravity(grid) {
+    for (let c = 0; c < COLS; c++) {
+      let write = ROWS - 1;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (grid[r][c] !== EMPTY) {
+          const v = grid[r][c];
+          grid[r][c] = EMPTY;
+          grid[write][c] = v;
+          write--;
+        }
+      }
+    }
+  }
+
+  function gridFindGroups(grid) {
+    const seen = [];
+    for (let r = 0; r < ROWS; r++) seen.push(new Array(COLS).fill(false));
+    const groups = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const v = grid[r][c];
+        if (v === EMPTY || v === OJAMA || seen[r][c]) continue;
+        const stack = [[r, c]];
+        seen[r][c] = true;
+        const group = [];
+        while (stack.length) {
+          const cur = stack.pop();
+          const cr = cur[0], cc = cur[1];
+          group.push({ row: cr, col: cc });
+          const nb = [[cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]];
+          for (const n of nb) {
+            const nr = n[0], nc = n[1];
+            if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+            if (!seen[nr][nc] && grid[nr][nc] === v) { seen[nr][nc] = true; stack.push([nr, nc]); }
+          }
+        }
+        if (group.length >= 4) groups.push(group);
+      }
+    }
+    return groups;
+  }
+
+  // Fully resolve a grid (clears + chains). Returns {cleared, chain}.
+  function gridResolve(grid) {
+    let chain = 0, cleared = 0;
+    gridApplyGravity(grid);
+    while (true) {
+      const groups = gridFindGroups(grid);
+      if (groups.length === 0) break;
+      chain++;
+      for (const g of groups) {
+        for (const cell of g) {
+          // remove adjacent ojama too (matches Board.finishClearing)
+          const nb = [[cell.row - 1, cell.col], [cell.row + 1, cell.col],
+                      [cell.row, cell.col - 1], [cell.row, cell.col + 1]];
+          for (const n of nb) {
+            const nr = n[0], nc = n[1];
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === OJAMA) {
+              grid[nr][nc] = EMPTY;
+            }
+          }
+          grid[cell.row][cell.col] = EMPTY;
+          cleared++;
+        }
+      }
+      gridApplyGravity(grid);
+    }
+    return { cleared: cleared, chain: chain };
+  }
+
+  function gridDropRow(grid, c) {
+    for (let r = ROWS - 1; r >= 0; r--) if (grid[r][c] === EMPTY) return r;
+    return -1;
+  }
+
+  // Simulate dropping a pair (pivot colour a, satellite b) at a placement.
+  // Returns a new resolved-ready grid, or null if the placement is impossible.
+  function placePair(grid, col, orient, a, b) {
+    const g = cloneGrid(grid);
+    if (orient === 0 || orient === 2) {
+      if (col < 0 || col >= COLS) return null;
+      const dr = gridDropRow(g, col);
+      if (dr < 1) return null; // need two stacked cells
+      if (orient === 0) { g[dr][col] = a; g[dr - 1][col] = b; }
+      else { g[dr][col] = b; g[dr - 1][col] = a; }
+    } else if (orient === 1) {
+      if (col < 0 || col + 1 >= COLS) return null;
+      const d0 = gridDropRow(g, col), d1 = gridDropRow(g, col + 1);
+      if (d0 < 0 || d1 < 0) return null;
+      const rr = Math.min(d0, d1);
+      g[rr][col] = a; g[rr][col + 1] = b;
+    } else {
+      if (col - 1 < 0 || col >= COLS) return null;
+      const d0 = gridDropRow(g, col), d1 = gridDropRow(g, col - 1);
+      if (d0 < 0 || d1 < 0) return null;
+      const rr = Math.min(d0, d1);
+      g[rr][col] = a; g[rr][col - 1] = b;
+    }
+    gridApplyGravity(g);
+    return g;
   }
 
   // =====================================================================
-  // Board — holds one field's full state. Kept self-contained so Phase 2
-  // can instantiate two of them side by side.
+  // Board — one field's full state. Two of these run side by side.
   // =====================================================================
   class Board {
     constructor() {
+      this.onSend = null; // function(n): route garbage to the opponent
       this.reset();
     }
 
     reset() {
       this.grid = [];
-      for (let r = 0; r < ROWS; r++) {
-        this.grid.push(new Array(COLS).fill(EMPTY));
-      }
-      this.piece = null;        // active falling pair
+      for (let r = 0; r < ROWS; r++) this.grid.push(new Array(COLS).fill(EMPTY));
+      this.piece = null;
       this.next = this.makePair();
       this.score = 0;
-      this.chain = 0;           // current chain depth during resolution
+      this.chain = 0;
       this.maxChain = 0;
+      this.chainScore = 0;        // score accumulated during current resolution
+      this.pendingGarbage = 0;    // ojama waiting to drop on this board
+      this.garbageCarry = 0;      // fractional garbage carried between attacks
       this.particles = [];
-      this.clearing = [];       // cells flashing before removal
-      this.phase = "control";   // control | clearing | settle | spawn | over
-      this.timer = 0;           // generic phase timer (ms)
-      this.fallTimer = 0;       // accumulator for natural fall
+      this.clearing = [];
+      this.phase = "control";
+      this.timer = 0;
+      this.fallTimer = 0;
       this.softDrop = false;
       this.gameOver = false;
-      this.flashT = 0;          // 0..1 animation phase for clearing flash
+      this.flashT = 0;
       this.spawnPiece();
     }
 
-    makePair() {
-      return { a: randColor(), b: randColor() };
-    }
+    makePair() { return { a: randColor(), b: randColor() }; }
 
-    // Place a new active piece from the "next" queue.
     spawnPiece() {
       const pair = this.next;
       this.next = this.makePair();
       this.piece = {
-        row: HIDDEN_ROWS - 1,   // pivot starts in the hidden spawn area
-        col: SPAWN_COL,
-        orient: 0,              // satellite above pivot
-        a: pair.a,              // pivot color
-        b: pair.b,              // satellite color
-        offsetY: 0,             // visual interpolation (0..1 of a cell)
+        row: HIDDEN_ROWS - 1, col: SPAWN_COL, orient: 0,
+        a: pair.a, b: pair.b, offsetY: 0,
       };
-      // Game over: spawn cells already occupied.
       const childRow = this.piece.row + childOffset(0).dr;
-      if (!this.isFree(this.piece.row, this.piece.col) ||
-          !this.isFree(childRow, this.piece.col)) {
+      if (!this.isFree(this.piece.row, this.piece.col) || !this.isFree(childRow, this.piece.col)) {
         this.gameOver = true;
         this.phase = "over";
         this.piece = null;
@@ -390,67 +486,48 @@
       return this.grid[row][col] === EMPTY;
     }
 
-    // Cells occupied by the active piece at a given (row,col,orient).
     cellsOf(row, col, orient) {
       const o = childOffset(orient);
-      return [
-        { row: row, col: col },
-        { row: row + o.dr, col: col + o.dc },
-      ];
+      return [{ row: row, col: col }, { row: row + o.dr, col: col + o.dc }];
     }
 
     fits(row, col, orient) {
       const cells = this.cellsOf(row, col, orient);
-      for (const c of cells) {
-        if (!this.isFree(c.row, c.col)) return false;
-      }
+      for (const c of cells) if (!this.isFree(c.row, c.col)) return false;
       return true;
     }
 
-    // ---- Player actions ----
+    // ---- Player / CPU actions ----
     move(dir) {
       if (this.phase !== "control" || !this.piece) return;
       const p = this.piece;
-      if (this.fits(p.row, p.col + dir, p.orient)) {
-        p.col += dir;
-      }
+      if (this.fits(p.row, p.col + dir, p.orient)) p.col += dir;
     }
 
     rotate(dir) {
       if (this.phase !== "control" || !this.piece) return;
       const p = this.piece;
       const no = (p.orient + (dir > 0 ? 1 : 3)) & 3;
-      if (this.fits(p.row, p.col, no)) {
-        p.orient = no;
-        return;
-      }
-      // Wall kicks: try nudging the pivot opposite the satellite.
+      if (this.fits(p.row, p.col, no)) { p.orient = no; return; }
       const o = childOffset(no);
       const kicks = [
-        { dr: 0, dc: -o.dc }, // push horizontally away from satellite
-        { dr: -o.dr, dc: 0 }, // push vertically away from satellite
+        { dr: 0, dc: -o.dc },
+        { dr: -o.dr, dc: 0 },
         { dr: 0, dc: o.dc ? 0 : (p.col < COLS / 2 ? 1 : -1) },
       ];
       for (const k of kicks) {
         if (this.fits(p.row + k.dr, p.col + k.dc, no)) {
-          p.row += k.dr;
-          p.col += k.dc;
-          p.orient = no;
-          return;
+          p.row += k.dr; p.col += k.dc; p.orient = no; return;
         }
       }
     }
 
-    setSoftDrop(on) {
-      this.softDrop = on;
-    }
+    setSoftDrop(on) { this.softDrop = on; }
 
     hardDrop() {
       if (this.phase !== "control" || !this.piece) return;
       const p = this.piece;
-      while (this.fits(p.row + 1, p.col, p.orient)) {
-        p.row += 1;
-      }
+      while (this.fits(p.row + 1, p.col, p.orient)) p.row += 1;
       p.offsetY = 0;
       this.lockPiece();
     }
@@ -459,105 +536,117 @@
     lockPiece() {
       const p = this.piece;
       const cells = this.cellsOf(p.row, p.col, p.orient);
-      // Pivot is colour a, satellite is colour b.
       this.grid[cells[0].row][cells[0].col] = p.a;
-      if (cells[1].row >= 0 && cells[1].row < ROWS) {
-        this.grid[cells[1].row][cells[1].col] = p.b;
-      }
+      if (cells[1].row >= 0 && cells[1].row < ROWS) this.grid[cells[1].row][cells[1].col] = p.b;
       this.piece = null;
+      this.chainScore = 0; // start of a fresh resolution
       this.applyGravity();
       this.beginResolve();
     }
 
-    // Compact every column so floating cells fall to the bottom.
-    applyGravity() {
-      for (let c = 0; c < COLS; c++) {
-        let write = ROWS - 1;
-        for (let r = ROWS - 1; r >= 0; r--) {
-          if (this.grid[r][c] !== EMPTY) {
-            const v = this.grid[r][c];
-            this.grid[r][c] = EMPTY;
-            this.grid[write][c] = v;
-            write--;
-          }
-        }
-      }
-    }
-
-    // Find all connected same-colour groups of size >= 4.
-    findGroups() {
-      const seen = [];
-      for (let r = 0; r < ROWS; r++) seen.push(new Array(COLS).fill(false));
-      const groups = [];
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          const v = this.grid[r][c];
-          if (v === EMPTY || v === 9 || seen[r][c]) continue;
-          // BFS flood fill on matching colour (orthogonal only).
-          const stack = [[r, c]];
-          seen[r][c] = true;
-          const group = [];
-          while (stack.length) {
-            const [cr, cc] = stack.pop();
-            group.push({ row: cr, col: cc });
-            const nb = [[cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]];
-            for (const [nr, ncc] of nb) {
-              if (nr < 0 || nr >= ROWS || ncc < 0 || ncc >= COLS) continue;
-              if (seen[nr][ncc]) continue;
-              if (this.grid[nr][ncc] === v) {
-                seen[nr][ncc] = true;
-                stack.push([nr, ncc]);
-              }
-            }
-          }
-          if (group.length >= 4) groups.push(group);
-        }
-      }
-      return groups;
-    }
+    applyGravity() { gridApplyGravity(this.grid); }
+    findGroups() { return gridFindGroups(this.grid); }
 
     beginResolve() {
       const groups = this.findGroups();
       if (groups.length === 0) {
-        // Nothing to clear: hand control back (or spawn the next piece).
-        this.chain = 0;
-        this.phase = "spawn";
-        this.timer = SPAWN_PAUSE_MS;
+        this.finalizeChain();
         return;
       }
       this.chain += 1;
       if (this.chain > this.maxChain) this.maxChain = this.chain;
 
-      // Mark cells for the flash, count for scoring.
       let count = 0;
       this.clearing = [];
       for (const g of groups) {
-        for (const cell of g) {
-          this.clearing.push(cell);
-          count += 1;
-        }
+        for (const cell of g) { this.clearing.push(cell); count += 1; }
       }
-      // Score: cleared * 10 * 2^(chain-1)  (exponential chain bonus).
       const bonus = Math.pow(2, this.chain - 1);
-      this.score += Math.round(count * 10 * bonus);
+      const stepScore = Math.round(count * 10 * bonus);
+      this.score += stepScore;
+      this.chainScore += stepScore;
 
       this.phase = "clearing";
       this.timer = CLEAR_FLASH_MS;
       this.flashT = 0;
     }
 
+    // Chain finished: convert score to garbage, offset, send, then maybe drop.
+    finalizeChain() {
+      const units = this.chainScore + this.garbageCarry;
+      let sent = Math.floor(units / GARBAGE_RATE);
+      this.garbageCarry = units % GARBAGE_RATE;
+      // Outgoing garbage first cancels our own incoming (counter mechanic).
+      if (this.pendingGarbage > 0 && sent > 0) {
+        const off = Math.min(this.pendingGarbage, sent);
+        this.pendingGarbage -= off;
+        sent -= off;
+      }
+      if (sent > 0 && this.onSend) this.onSend(sent);
+      this.chain = 0;
+
+      if (this.pendingGarbage > 0) {
+        this.phase = "garbage";
+        this.timer = GARBAGE_PAUSE_MS;
+      } else {
+        this.phase = "spawn";
+        this.timer = SPAWN_PAUSE_MS;
+      }
+    }
+
     finishClearing() {
-      // Spawn shatter particles, then empty the cells.
+      // Ojama adjacent to a cleared cell get knocked out (one hit).
+      const ojamaOut = new Set();
+      for (const cell of this.clearing) {
+        const nb = [[cell.row - 1, cell.col], [cell.row + 1, cell.col],
+                    [cell.row, cell.col - 1], [cell.row, cell.col + 1]];
+        for (const n of nb) {
+          const r = n[0], c = n[1];
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS && this.grid[r][c] === OJAMA) {
+            ojamaOut.add(r * COLS + c);
+          }
+        }
+      }
       for (const cell of this.clearing) {
         const v = this.grid[cell.row][cell.col];
         this.spawnShatter(cell.col, cell.row, v);
         this.grid[cell.row][cell.col] = EMPTY;
       }
+      for (const key of ojamaOut) {
+        const r = Math.floor(key / COLS), c = key % COLS;
+        this.spawnShatter(c, r, OJAMA);
+        this.grid[r][c] = EMPTY;
+      }
       this.clearing = [];
       this.applyGravity();
-      // Continue the chain after a short settle pause.
       this.phase = "settle";
       this.timer = SETTLE_PAUSE_MS;
+    }
+
+    addPendingGarbage(n) { this.pendingGarbage += n; }
+
+    dropRowOf(c) {
+      for (let r = ROWS - 1; r >= 0; r--) if (this.grid[r][c] === EMPTY) return r;
+      return -1;
+    }
+
+    dropGarbage() {
+      let n = Math.min(this.pendingGarbage, MAX_GARBAGE_DROP);
+      this.pendingGarbage -= n;
+      const per = Math.floor(n / COLS);
+      const rem = n % COLS;
+      const cols = [0, 1, 2, 3, 4, 5];
+      for (let i = cols.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = cols[i]; cols[i] = cols[j]; cols[j] = t;
+      }
+      const extra = new Set(cols.slice(0, rem));
+      for (let c = 0; c < COLS; c++) {
+        let add = per + (extra.has(c) ? 1 : 0);
+        let dr = this.dropRowOf(c);
+        while (add > 0 && dr >= 0) { this.grid[dr][c] = OJAMA; dr--; add--; }
+      }
+      this.applyGravity();
     }
 
     spawnShatter(col, row, colorId) {
@@ -570,46 +659,29 @@
         const sp = 60 + Math.random() * 130;
         this.particles.push({
           x: cx, y: cy,
-          vx: Math.cos(ang) * sp,
-          vy: Math.sin(ang) * sp - 40,
-          life: 1,
-          size: 4 + Math.random() * 5,
-          rot: Math.random() * Math.PI,
-          vr: (Math.random() - 0.5) * 8,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40,
+          life: 1, size: 4 + Math.random() * 5,
+          rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 8,
           color: col0.core,
         });
       }
     }
 
-    // ---- Per-frame update ----
     update(dt) {
-      // Particles run regardless of phase.
       this.updateParticles(dt);
 
       if (this.phase === "control" && this.piece) {
         const interval = this.softDrop ? SOFT_DROP_MS : GRAVITY_MS;
         this.fallTimer += dt;
-        // Step the piece down one whole row per elapsed interval first.
         while (this.fallTimer >= interval) {
           this.fallTimer -= interval;
           const p = this.piece;
-          if (this.fits(p.row + 1, p.col, p.orient)) {
-            p.row += 1;
-          } else {
-            this.fallTimer = 0;
-            p.offsetY = 0;
-            this.lockPiece();
-            return;
-          }
+          if (this.fits(p.row + 1, p.col, p.orient)) p.row += 1;
+          else { this.fallTimer = 0; p.offsetY = 0; this.lockPiece(); return; }
         }
-        // Interpolate only toward a cell we can actually enter, so the piece
-        // never visually overshoots/penetrates the floor before locking.
         const p = this.piece;
-        if (this.fits(p.row + 1, p.col, p.orient)) {
-          p.offsetY = this.fallTimer / interval;
-        } else {
-          p.offsetY = 0; // resting on the floor: hold steady, no dip
-        }
+        if (this.fits(p.row + 1, p.col, p.orient)) p.offsetY = this.fallTimer / interval;
+        else p.offsetY = 0;
       } else if (this.phase === "clearing") {
         this.timer -= dt;
         this.flashT = 1 - Math.max(0, this.timer) / CLEAR_FLASH_MS;
@@ -617,6 +689,9 @@
       } else if (this.phase === "settle") {
         this.timer -= dt;
         if (this.timer <= 0) this.beginResolve();
+      } else if (this.phase === "garbage") {
+        this.timer -= dt;
+        if (this.timer <= 0) { this.dropGarbage(); this.phase = "spawn"; this.timer = SPAWN_PAUSE_MS; }
       } else if (this.phase === "spawn") {
         this.timer -= dt;
         if (this.timer <= 0) this.spawnPiece();
@@ -626,24 +701,108 @@
     updateParticles(dt) {
       const s = dt / 1000;
       for (const pt of this.particles) {
-        pt.vy += 520 * s;       // gravity on shards
-        pt.x += pt.vx * s;
-        pt.y += pt.vy * s;
-        pt.rot += pt.vr * s;
-        pt.life -= s * 1.7;
+        pt.vy += 520 * s;
+        pt.x += pt.vx * s; pt.y += pt.vy * s;
+        pt.rot += pt.vr * s; pt.life -= s * 1.7;
       }
-      this.particles = this.particles.filter((p) => p.life > 0);
+      this.particles = this.particles.filter(function (p) { return p.life > 0; });
     }
   }
 
   // =====================================================================
-  // Renderer — pure drawing from Board state. No game logic here.
+  // CPU — chooses a placement via look-ahead, then steers the piece there.
+  // =====================================================================
+  const WEIGHTS = {
+    EASY:   { clear: 1.0, chain: 0.0,  adj: 0.2, hsum: 0.05, hmax: 0.2, rand: 6,   randomPick: 0.5 },
+    NORMAL: { clear: 2.0, chain: 5.0,  adj: 1.0, hsum: 0.15, hmax: 0.6, rand: 2,   randomPick: 0.1 },
+    HARD:   { clear: 2.5, chain: 14.0, adj: 1.8, hsum: 0.25, hmax: 1.0, rand: 0.5, randomPick: 0.0 },
+  };
+  const CPU_SPEED = {
+    EASY:   { think: 450, step: 300 },
+    NORMAL: { think: 240, step: 150 },
+    HARD:   { think: 110, step: 75 },
+  };
+
+  function evalGrid(g) {
+    let adj = 0, hsum = 0, hmax = 0;
+    const heights = new Array(COLS).fill(0);
+    for (let c = 0; c < COLS; c++) {
+      let h = 0;
+      for (let r = 0; r < ROWS; r++) { if (g[r][c] !== EMPTY) { h = ROWS - r; break; } }
+      heights[c] = h; hsum += h; if (h > hmax) hmax = h;
+    }
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const v = g[r][c];
+        if (v === EMPTY || v === OJAMA) continue;
+        if (c + 1 < COLS && g[r][c + 1] === v) adj++;
+        if (r + 1 < ROWS && g[r + 1][c] === v) adj++;
+      }
+    }
+    return { adj: adj, hsum: hsum, hmax: hmax, heights: heights };
+  }
+
+  function chooseMove(board, diff) {
+    const W = WEIGHTS[diff] || WEIGHTS.NORMAL;
+    const a = board.piece.a, b = board.piece.b;
+    let best = null, bestScore = -Infinity;
+    const cand = [];
+    for (let orient = 0; orient < 4; orient++) {
+      for (let col = 0; col < COLS; col++) {
+        const g = placePair(board.grid, col, orient, a, b);
+        if (!g) continue;
+        const sim = cloneGrid(g);
+        const res = gridResolve(sim);
+        const f = evalGrid(sim);
+        let s = W.clear * res.cleared + W.chain * (res.chain * res.chain) + W.adj * f.adj
+              - W.hsum * f.hsum - W.hmax * f.hmax;
+        if (f.heights[2] >= ROWS - 2 || f.heights[3] >= ROWS - 2) s -= 1000;
+        s += Math.random() * W.rand;
+        cand.push({ col: col, orient: orient, score: s });
+        if (s > bestScore) { bestScore = s; best = { col: col, orient: orient }; }
+      }
+    }
+    if (!best) return { col: SPAWN_COL, orient: 0 };
+    if (W.randomPick && Math.random() < W.randomPick && cand.length) {
+      const r = cand[Math.floor(Math.random() * cand.length)];
+      return { col: r.col, orient: r.orient };
+    }
+    return best;
+  }
+
+  function makeCpu(board, diff) {
+    const sp = CPU_SPEED[diff] || CPU_SPEED.NORMAL;
+    let decidedFor = null, target = null, thinkT = 0, stepT = 0;
+    return {
+      update: function (dt) {
+        if (board.gameOver) return;
+        if (board.phase !== "control" || !board.piece) { thinkT = 0; return; }
+        if (board.piece !== decidedFor) { decidedFor = board.piece; target = null; thinkT = 0; stepT = 0; }
+        if (!target) {
+          thinkT += dt;
+          if (thinkT >= sp.think) { target = chooseMove(board, diff); stepT = 0; }
+          return;
+        }
+        stepT += dt;
+        if (stepT >= sp.step) {
+          stepT = 0;
+          const p = board.piece;
+          if (p.orient !== target.orient) board.rotate(1);
+          else if (p.col < target.col) board.move(1);
+          else if (p.col > target.col) board.move(-1);
+          else { board.hardDrop(); decidedFor = null; target = null; }
+        }
+      },
+    };
+  }
+
+  // =====================================================================
+  // Renderer — pure drawing from Board state.
   // =====================================================================
   function drawCrystal(ctx, x, y, size, colorId, opts) {
     opts = opts || {};
     const col = COLORS[colorId] || COLORS[1];
-    const cx = x + size / 2;
-    const cy = y + size / 2;
+    const cx = x + size / 2, cy = y + size / 2;
     const r = size * 0.40;
     const alpha = opts.alpha == null ? 1 : opts.alpha;
 
@@ -651,65 +810,57 @@
     ctx.globalAlpha = alpha;
     ctx.translate(cx, cy);
 
-    // Outer glow.
     const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 1.5);
     glow.addColorStop(0, hexA(col.glow, 0.55 * alpha));
     glow.addColorStop(1, hexA(col.glow, 0));
     ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.5, 0, Math.PI * 2); ctx.fill();
 
-    // Hexagonal crystal body.
     const sides = 6;
     ctx.beginPath();
     for (let i = 0; i < sides; i++) {
       const ang = -Math.PI / 2 + (Math.PI * 2 * i) / sides;
-      const px = Math.cos(ang) * r;
-      const py = Math.sin(ang) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+      const px = Math.cos(ang) * r, py = Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-
     const body = ctx.createLinearGradient(0, -r, 0, r);
-    body.addColorStop(0, col.core);
-    body.addColorStop(1, col.edge);
-    ctx.fillStyle = body;
-    ctx.fill();
+    body.addColorStop(0, col.core); body.addColorStop(1, col.edge);
+    ctx.fillStyle = body; ctx.fill();
 
-    // Inner glow / facet highlight.
     ctx.beginPath();
     for (let i = 0; i < sides; i++) {
       const ang = -Math.PI / 2 + (Math.PI * 2 * i) / sides;
-      const px = Math.cos(ang) * r * 0.5;
-      const py = Math.sin(ang) * r * 0.5;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+      const px = Math.cos(ang) * r * 0.5, py = Math.sin(ang) * r * 0.5;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = hexA("#ffffff", 0.22 * alpha);
-    ctx.fill();
+    ctx.fillStyle = hexA("#ffffff", 0.22 * alpha); ctx.fill();
 
-    // Crisp edge.
     ctx.lineWidth = Math.max(1, size * 0.045);
     ctx.strokeStyle = hexA(col.glow, 0.7 * alpha);
     ctx.beginPath();
     for (let i = 0; i < sides; i++) {
       const ang = -Math.PI / 2 + (Math.PI * 2 * i) / sides;
-      const px = Math.cos(ang) * r;
-      const py = Math.sin(ang) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+      const px = Math.cos(ang) * r, py = Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
-    ctx.closePath();
-    ctx.stroke();
+    ctx.closePath(); ctx.stroke();
+
+    // Ojama: dark cracks so it reads as "neutral / locked".
+    if (colorId === OJAMA) {
+      ctx.lineWidth = Math.max(1, size * 0.04);
+      ctx.strokeStyle = hexA("#1b2026", 0.8 * alpha);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.45, -r * 0.15); ctx.lineTo(0, r * 0.12); ctx.lineTo(r * 0.4, -r * 0.2);
+      ctx.moveTo(0, r * 0.12); ctx.lineTo(-r * 0.12, r * 0.5);
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
 
   function hexA(hex, a) {
-    // hex "#rrggbb" -> rgba string
     const h = hex.replace("#", "");
     const r = parseInt(h.substring(0, 2), 16);
     const g = parseInt(h.substring(2, 4), 16);
@@ -723,30 +874,25 @@
   const canvas = document.getElementById("zd-canvas");
   const ctx = canvas.getContext("2d");
 
-  // Layout: field on the left, an info panel on the right.
-  const PANEL_W = 130;
-  const PAD = 16;
+  // Two-board layout (player on the left, CPU on the right).
+  const PAD = 14;
+  const GAP = 26;
+  const HEADER_H = 66;
   const FIELD_W = COLS * CELL;
   const FIELD_H = VISIBLE_ROWS * CELL;
-  const BASE_W = FIELD_W + PANEL_W + PAD * 3;
-  const BASE_H = FIELD_H + PAD * 2;
+  const BASE_W = PAD * 2 + FIELD_W * 2 + GAP;
+  const BASE_H = PAD * 2 + HEADER_H + FIELD_H;
 
   let dpr = 1;
   let viewScale = 1;
-
   const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
   const stageEl = document.getElementById("stage");
 
   function resize() {
-    // Fit the base layout into the stage box (the area left above the
-    // on-screen controller). Flexbox owns the box; we just scale to fit it.
-    const availW = Math.min(stageEl.clientWidth, 520) - 8;
+    const availW = Math.min(stageEl.clientWidth, 560) - 8;
     const availH = stageEl.clientHeight - 8;
-    const scaleW = availW / BASE_W;
-    const scaleH = availH / BASE_H;
-    viewScale = Math.min(scaleW, scaleH, 1.4);
+    viewScale = Math.min(availW / BASE_W, availH / BASE_H, 1.4);
     if (viewScale <= 0 || !isFinite(viewScale)) viewScale = 1;
-
     dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(BASE_W * viewScale * dpr);
     canvas.height = Math.round(BASE_H * viewScale * dpr);
@@ -754,20 +900,12 @@
     canvas.style.height = Math.round(BASE_H * viewScale) + "px";
   }
   window.addEventListener("resize", resize);
-  window.addEventListener("orientationchange", function () {
-    setTimeout(resize, 120);
-  });
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 120); });
 
-  // Background ambient particles (purely decorative).
   const ambient = [];
   for (let i = 0; i < 26; i++) {
-    ambient.push({
-      x: Math.random() * BASE_W,
-      y: Math.random() * BASE_H,
-      r: 0.6 + Math.random() * 1.8,
-      vy: 4 + Math.random() * 10,
-      a: 0.05 + Math.random() * 0.18,
-    });
+    ambient.push({ x: Math.random() * BASE_W, y: Math.random() * BASE_H,
+      r: 0.6 + Math.random() * 1.8, vy: 4 + Math.random() * 10, a: 0.05 + Math.random() * 0.18 });
   }
   function updateAmbient(dt) {
     const s = dt / 1000;
@@ -777,11 +915,15 @@
     }
   }
 
-  // ---- Screen state machine -------------------------------------------
+  // ---- Screen state ----
   const SCREEN = { TITLE: "title", PLAYING: "playing", RESULT: "result" };
   let screen = SCREEN.TITLE;
-  let board = null;
+  let board = null;       // player's board (driven by input)
+  let cpuBoard = null;    // CPU's board
+  let cpuCtrl = null;
+  let difficulty = "NORMAL";
   let paused = false;
+  let matchEnded = false;
 
   const elTitle = document.getElementById("overlay-title");
   const elResult = document.getElementById("overlay-result");
@@ -791,7 +933,7 @@
   const elBtnPause = document.getElementById("btn-pause");
   const elTouch = document.getElementById("touch-controls");
   const elFooter = document.querySelector(".footer-note");
-  let stopAllTouchRepeats = function () {}; // assigned by bindTouchControls()
+  let stopAllTouchRepeats = function () {};
 
   function showScreen(s) {
     screen = s;
@@ -800,77 +942,67 @@
     elTitle.classList.toggle("hidden", s !== SCREEN.TITLE);
     elResult.classList.toggle("hidden", s !== SCREEN.RESULT);
     elPause.classList.add("hidden");
-    // Floating top-right pause is for desktop; touch uses the controller's pause.
     elBtnPause.classList.toggle("hidden", s !== SCREEN.PLAYING || isTouch);
     elTouch.classList.toggle("hidden", !(isTouch && s === SCREEN.PLAYING));
     elFooter.classList.toggle("hidden", s !== SCREEN.TITLE);
-    resize(); // reflow the canvas now that the controller may have appeared
+    resize();
   }
 
   function setPaused(on) {
     if (screen !== SCREEN.PLAYING) return;
-    if (board && board.gameOver) return;
+    if (matchEnded) return;
     paused = on;
-    if (board) board.setSoftDrop(false); // avoid a stuck soft-drop on resume
+    if (board) board.setSoftDrop(false);
     keyHeld.down = false;
     stopAllTouchRepeats();
     elPause.classList.toggle("hidden", !on);
-    elBtnPause.classList.toggle("hidden", on || isTouch); // desktop-only floating button
+    elBtnPause.classList.toggle("hidden", on || isTouch);
     elTouch.classList.toggle("hidden", on || !(isTouch && screen === SCREEN.PLAYING));
   }
 
-  function startGame() {
+  function startGame(diff) {
+    difficulty = diff || difficulty || "NORMAL";
     board = new Board();
+    cpuBoard = new Board();
+    board.onSend = function (n) { cpuBoard.addPendingGarbage(n); };
+    cpuBoard.onSend = function (n) { board.addPendingGarbage(n); };
+    cpuCtrl = makeCpu(cpuBoard, difficulty);
+    matchEnded = false;
     showScreen(SCREEN.PLAYING);
   }
 
-  function endGame() {
+  function endGame(result) {
     showScreen(SCREEN.RESULT);
-    elResultTitle.textContent = "おしまい";
+    elResultTitle.textContent = result === "WIN" ? "WIN" : "LOSE";
+    elResultTitle.style.color = result === "WIN" ? "#7fe0d6" : "#f58ad6";
     elResultScore.textContent =
-      "スコア " + board.score + "　/　最大 " + board.maxChain + " 連鎖";
+      "あなた " + board.score + " ・ CPU " + cpuBoard.score + "（" + difficulty + "）";
   }
 
-  document.getElementById("btn-start").addEventListener("click", startGame);
-  document.getElementById("btn-retry").addEventListener("click", startGame);
-  document.getElementById("btn-title").addEventListener("click", function () {
-    showScreen(SCREEN.TITLE);
+  // Title difficulty buttons start the match.
+  document.querySelectorAll("[data-diff]").forEach(function (btn) {
+    btn.addEventListener("click", function () { startGame(btn.getAttribute("data-diff")); });
   });
+  document.getElementById("btn-retry").addEventListener("click", function () { startGame(difficulty); });
+  document.getElementById("btn-title").addEventListener("click", function () { showScreen(SCREEN.TITLE); });
   elBtnPause.addEventListener("click", function () { setPaused(true); });
-  document.getElementById("btn-resume").addEventListener("click", function () {
-    setPaused(false);
-  });
-  document.getElementById("btn-pause-title").addEventListener("click", function () {
-    showScreen(SCREEN.TITLE);
-  });
+  document.getElementById("btn-resume").addEventListener("click", function () { setPaused(false); });
+  document.getElementById("btn-pause-title").addEventListener("click", function () { showScreen(SCREEN.TITLE); });
 
-  // ---- Keyboard input --------------------------------------------------
+  // ---- Keyboard input (player board) ----
   const keyHeld = {};
   window.addEventListener("keydown", function (e) {
     if (screen !== SCREEN.PLAYING || !board) return;
-    // Pause toggle works whether or not we're currently paused.
-    if (e.key === "p" || e.key === "P" || e.key === "Escape") {
-      setPaused(!paused);
-      e.preventDefault();
-      return;
-    }
-    if (paused) return; // ignore gameplay keys while paused
+    if (e.key === "p" || e.key === "P" || e.key === "Escape") { setPaused(!paused); e.preventDefault(); return; }
+    if (paused) return;
     let handled = true;
     switch (e.key) {
       case "ArrowLeft": board.move(-1); break;
       case "ArrowRight": board.move(1); break;
-      case "ArrowUp":
-      case "x":
-      case "X": board.rotate(1); break;
-      case "z":
-      case "Z": board.rotate(-1); break;
-      case "ArrowDown":
-        board.setSoftDrop(true);
-        keyHeld.down = true;
-        break;
-      case " ":
-        if (!keyHeld.space) { board.hardDrop(); keyHeld.space = true; }
-        break;
+      case "ArrowUp": case "x": case "X": board.rotate(1); break;
+      case "z": case "Z": board.rotate(-1); break;
+      case "ArrowDown": board.setSoftDrop(true); keyHeld.down = true; break;
+      case " ": if (!keyHeld.space) { board.hardDrop(); keyHeld.space = true; } break;
       default: handled = false;
     }
     if (handled) e.preventDefault();
@@ -880,270 +1012,17 @@
     if (e.key === " ") keyHeld.space = false;
   });
 
-  // ---- Touch input -----------------------------------------------------
-  let touch = null;
-  canvas.addEventListener("touchstart", function (e) {
-    if (screen !== SCREEN.PLAYING) return;
-    const t = e.changedTouches[0];
-    touch = { x0: t.clientX, y0: t.clientY, x: t.clientX, y: t.clientY,
-              t0: performance.now(), movedCol: 0, soft: false };
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener("touchmove", function (e) {
-    if (!touch || !board) return;
-    const t = e.changedTouches[0];
-    touch.x = t.clientX; touch.y = t.clientY;
-    const stepPx = 26;
-    const dx = touch.x - touch.x0;
-    const dy = touch.y - touch.y0;
-    // Horizontal swipe -> column moves.
-    const wantCol = Math.round(dx / stepPx);
-    while (touch.movedCol < wantCol) { board.move(1); touch.movedCol++; }
-    while (touch.movedCol > wantCol) { board.move(-1); touch.movedCol--; }
-    // Downward swipe -> soft drop.
-    const soft = dy > 24 && Math.abs(dy) > Math.abs(dx);
-    if (soft !== touch.soft) { board.setSoftDrop(soft); touch.soft = soft; }
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener("touchend", function (e) {
-    if (!touch || !board) { touch = null; return; }
-    const dt = performance.now() - touch.t0;
-    const dx = touch.x - touch.x0;
-    const dy = touch.y - touch.y0;
-    const dist = Math.hypot(dx, dy);
-    if (board) board.setSoftDrop(false);
-    // A short, still tap = rotate.
-    if (dt < 250 && dist < 16 && touch.movedCol === 0) {
-      board.rotate(1);
-    }
-    touch = null;
-    e.preventDefault();
-  }, { passive: false });
-
-  // ---- Render ----------------------------------------------------------
-  function render() {
-    ctx.save();
-    ctx.scale(viewScale * dpr, viewScale * dpr);
-    ctx.clearRect(0, 0, BASE_W, BASE_H);
-
-    // Ambient particles behind everything.
-    for (const p of ambient) {
-      ctx.fillStyle = hexA("#bfe9e4", p.a);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    if (screen === SCREEN.PLAYING || screen === SCREEN.RESULT) {
-      if (board) renderBoard(board);
-    }
-
-    ctx.restore();
-  }
-
-  function renderBoard(b) {
-    const ox = PAD;
-    const oy = PAD;
-
-    // Field frame.
-    ctx.save();
-    ctx.fillStyle = "rgba(0,0,0,0.28)";
-    roundRect(ctx, ox - 6, oy - 6, FIELD_W + 12, FIELD_H + 12, 12);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.lineWidth = 1;
-    roundRect(ctx, ox - 6, oy - 6, FIELD_W + 12, FIELD_H + 12, 12);
-    ctx.stroke();
-
-    // Clip to field for cells.
-    ctx.save();
-    roundRect(ctx, ox, oy, FIELD_W, FIELD_H, 6);
-    ctx.clip();
-
-    // Subtle column grid.
-    ctx.strokeStyle = "rgba(255,255,255,0.035)";
-    ctx.lineWidth = 1;
-    for (let c = 1; c < COLS; c++) {
-      ctx.beginPath();
-      ctx.moveTo(ox + c * CELL, oy);
-      ctx.lineTo(ox + c * CELL, oy + FIELD_H);
-      ctx.stroke();
-    }
-
-    // Settled cells (skip hidden spawn rows).
-    const clearingSet = new Set(b.clearing.map((c) => c.row * COLS + c.col));
-    for (let r = HIDDEN_ROWS; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const v = b.grid[r][c];
-        if (v === EMPTY) continue;
-        const x = ox + c * CELL;
-        const y = oy + (r - HIDDEN_ROWS) * CELL;
-        let alpha = 1;
-        if (clearingSet.has(r * COLS + c)) {
-          // Flash: pulse brightness, then fade out near the end.
-          const f = b.flashT;
-          const pulse = 0.55 + 0.45 * Math.abs(Math.sin(f * Math.PI * 3));
-          alpha = f > 0.7 ? pulse * (1 - (f - 0.7) / 0.3) : pulse;
-        }
-        drawCrystal(ctx, x, y, CELL, v, { alpha: alpha });
-      }
-    }
-
-    // Active piece.
-    if (b.piece && b.phase === "control") {
-      const p = b.piece;
-      const o = childOffset(p.orient);
-      const interp = p.offsetY;
-      const py = (p.row - HIDDEN_ROWS + interp) * CELL;
-      // pivot
-      drawPieceCell(ox, oy, p.col, py, p.a);
-      // satellite
-      const cy = (p.row + o.dr - HIDDEN_ROWS + interp) * CELL;
-      drawPieceCell(ox, oy, p.col + o.dc, cy, p.b);
-    }
-
-    // Particles (shatter).
-    for (const pt of b.particles) {
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(1, pt.life));
-      ctx.translate(ox + pt.x, oy + pt.y);
-      ctx.rotate(pt.rot);
-      ctx.fillStyle = pt.color;
-      ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size);
-      ctx.restore();
-    }
-
-    ctx.restore(); // end clip
-
-    // Game over veil.
-    if (b.gameOver) {
-      ctx.fillStyle = "rgba(8,12,18,0.55)";
-      roundRect(ctx, ox, oy, FIELD_W, FIELD_H, 6);
-      ctx.fill();
-    }
-
-    ctx.restore();
-
-    // ---- Side panel ----
-    renderPanel(b);
-  }
-
-  function drawPieceCell(ox, oy, col, yWithinField, colorId) {
-    // Cells above the visible area are not drawn.
-    if (yWithinField + CELL <= 0) return;
-    drawCrystal(ctx, ox + col * CELL, oy + yWithinField, CELL, colorId, {});
-  }
-
-  function renderPanel(b) {
-    const px = PAD * 2 + FIELD_W;
-    const py = PAD;
-
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.035)";
-    roundRect(ctx, px, py, PANEL_W, FIELD_H, 12);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.lineWidth = 1;
-    roundRect(ctx, px, py, PANEL_W, FIELD_H, 12);
-    ctx.stroke();
-
-    const cx = px + PANEL_W / 2;
-    let y = py + 24;
-
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#8a97a8";
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.fillText("NEXT", cx, y);
-
-    // Next pair preview (stacked).
-    const ps = CELL * 0.8;
-    const nx = cx - ps / 2;
-    y += 14;
-    drawCrystal(ctx, nx, y, ps, b.next.b, {});      // satellite (top)
-    drawCrystal(ctx, nx, y + ps, ps, b.next.a, {});  // pivot (bottom)
-
-    y += ps * 2 + 34;
-    ctx.fillStyle = "#8a97a8";
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.fillText("SCORE", cx, y);
-    y += 26;
-    ctx.fillStyle = "#e8eef6";
-    ctx.font = "700 22px system-ui, sans-serif";
-    ctx.fillText(String(b.score), cx, y);
-
-    y += 40;
-    ctx.fillStyle = "#8a97a8";
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.fillText("CHAIN", cx, y);
-    y += 24;
-    ctx.fillStyle = b.chain > 0 ? "#7fe0d6" : "#46525f";
-    ctx.font = "700 20px system-ui, sans-serif";
-    ctx.fillText(b.chain > 0 ? b.chain + " 連鎖" : "—", cx, y);
-
-    ctx.restore();
-  }
-
-  function roundRect(ctx, x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  // ---- Main loop -------------------------------------------------------
-  let last = performance.now();
-  function loop(now) {
-    let dt = now - last;
-    last = now;
-    if (dt > 100) dt = 100; // clamp after tab switches
-
-    updateAmbient(dt);
-
-    if (screen === SCREEN.PLAYING && board && !paused) {
-      board.update(dt);
-      if (board.gameOver && !board._ended) {
-        board._ended = true;
-        elBtnPause.classList.add("hidden");
-        elTouch.classList.add("hidden");
-        stopAllTouchRepeats();
-        // brief pause so the final state is visible before the result screen
-        setTimeout(endGame, 700);
-      }
-    } else if (board && screen === SCREEN.RESULT) {
-      // Keep particles alive on the result screen.
-      board.updateParticles(dt);
-    }
-
-    render();
-    requestAnimationFrame(loop);
-  }
-
-  // ---- On-screen controller wiring -------------------------------------
+  // ---- On-screen controller (player board) ----
   function bindTouchControls() {
     const repeatTimers = {};
-    const REPEAT_DELAY = 200; // ms before auto-repeat starts (DAS)
-    const REPEAT_RATE = 70;   // ms between repeats while held (ARR)
-
+    const REPEAT_DELAY = 200, REPEAT_RATE = 70;
     function startRepeat(act, fn) {
       stopRepeat(act);
-      const tick = function () {
-        fn();
-        repeatTimers[act] = setTimeout(tick, REPEAT_RATE);
-      };
+      const tick = function () { fn(); repeatTimers[act] = setTimeout(tick, REPEAT_RATE); };
       repeatTimers[act] = setTimeout(tick, REPEAT_DELAY);
     }
-    function stopRepeat(act) {
-      if (repeatTimers[act]) { clearTimeout(repeatTimers[act]); delete repeatTimers[act]; }
-    }
-    stopAllTouchRepeats = function () {
-      for (const k in repeatTimers) stopRepeat(k);
-    };
+    function stopRepeat(act) { if (repeatTimers[act]) { clearTimeout(repeatTimers[act]); delete repeatTimers[act]; } }
+    stopAllTouchRepeats = function () { for (const k in repeatTimers) stopRepeat(k); };
 
     function press(act) {
       if (!board || screen !== SCREEN.PLAYING || paused || board.gameOver) return;
@@ -1157,10 +1036,7 @@
         case "pause": setPaused(true); break;
       }
     }
-    function release(act) {
-      stopRepeat(act);
-      if (act === "soft" && board) board.setSoftDrop(false);
-    }
+    function release(act) { stopRepeat(act); if (act === "soft" && board) board.setSoftDrop(false); }
 
     elTouch.querySelectorAll(".ctl").forEach(function (btn) {
       const act = btn.getAttribute("data-act");
@@ -1172,12 +1048,164 @@
       btn.addEventListener("pointerup", function (e) { e.preventDefault(); release(act); });
       btn.addEventListener("pointercancel", function () { release(act); });
       btn.addEventListener("lostpointercapture", function () { release(act); });
-      // Block the synthetic mouse/scroll/context events on long press.
       btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
     });
   }
 
-  // ---- Boot ------------------------------------------------------------
+  // ---- Render ----
+  function render() {
+    ctx.save();
+    ctx.scale(viewScale * dpr, viewScale * dpr);
+    ctx.clearRect(0, 0, BASE_W, BASE_H);
+
+    for (const p of ambient) {
+      ctx.fillStyle = hexA("#bfe9e4", p.a);
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    if ((screen === SCREEN.PLAYING || screen === SCREEN.RESULT) && board && cpuBoard) {
+      renderField(board, PAD, PAD, "YOU");
+      renderField(cpuBoard, PAD + FIELD_W + GAP, PAD, "CPU");
+    }
+    ctx.restore();
+  }
+
+  function renderField(b, ox, oy, label) {
+    // ---- Header ----
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.035)";
+    roundRect(ctx, ox, oy, FIELD_W, HEADER_H - 6, 10); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+    roundRect(ctx, ox, oy, FIELD_W, HEADER_H - 6, 10); ctx.stroke();
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#cfe9e4"; ctx.font = "700 15px system-ui, sans-serif";
+    ctx.fillText(label, ox + 12, oy + 20);
+    ctx.fillStyle = "#e8eef6"; ctx.font = "700 20px system-ui, sans-serif";
+    ctx.fillText(String(b.score), ox + 12, oy + 44);
+    if (b.pendingGarbage > 0) {
+      ctx.fillStyle = "#ffb86b"; ctx.font = "600 12px system-ui, sans-serif";
+      ctx.fillText("おじゃま +" + b.pendingGarbage, ox + 12, oy + 60);
+    }
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#8a97a8"; ctx.font = "10px system-ui, sans-serif";
+    ctx.fillText("NEXT", ox + FIELD_W - 12, oy + 14);
+    const ms = 18, mx = ox + FIELD_W - 12 - ms, my = oy + 18;
+    drawCrystal(ctx, mx, my, ms, b.next.b, {});
+    drawCrystal(ctx, mx, my + ms, ms, b.next.a, {});
+    ctx.restore();
+
+    // ---- Field ----
+    const fx = ox, fy = oy + HEADER_H;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    roundRect(ctx, fx - 6, fy - 6, FIELD_W + 12, FIELD_H + 12, 12); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+    roundRect(ctx, fx - 6, fy - 6, FIELD_W + 12, FIELD_H + 12, 12); ctx.stroke();
+
+    ctx.save();
+    roundRect(ctx, fx, fy, FIELD_W, FIELD_H, 6); ctx.clip();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.035)"; ctx.lineWidth = 1;
+    for (let c = 1; c < COLS; c++) {
+      ctx.beginPath(); ctx.moveTo(fx + c * CELL, fy); ctx.lineTo(fx + c * CELL, fy + FIELD_H); ctx.stroke();
+    }
+
+    const clearingSet = new Set(b.clearing.map(function (c) { return c.row * COLS + c.col; }));
+    for (let r = HIDDEN_ROWS; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const v = b.grid[r][c];
+        if (v === EMPTY) continue;
+        const x = fx + c * CELL, y = fy + (r - HIDDEN_ROWS) * CELL;
+        let alpha = 1;
+        if (clearingSet.has(r * COLS + c)) {
+          const f = b.flashT;
+          const pulse = 0.55 + 0.45 * Math.abs(Math.sin(f * Math.PI * 3));
+          alpha = f > 0.7 ? pulse * (1 - (f - 0.7) / 0.3) : pulse;
+        }
+        drawCrystal(ctx, x, y, CELL, v, { alpha: alpha });
+      }
+    }
+
+    if (b.piece && b.phase === "control") {
+      const p = b.piece;
+      const o = childOffset(p.orient);
+      const interp = p.offsetY;
+      const py = (p.row - HIDDEN_ROWS + interp) * CELL;
+      drawPieceCell(fx, fy, p.col, py, p.a);
+      const cy = (p.row + o.dr - HIDDEN_ROWS + interp) * CELL;
+      drawPieceCell(fx, fy, p.col + o.dc, cy, p.b);
+    }
+
+    for (const pt of b.particles) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, pt.life));
+      ctx.translate(fx + pt.x, fy + pt.y);
+      ctx.rotate(pt.rot);
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size);
+      ctx.restore();
+    }
+    ctx.restore(); // end clip
+
+    if (b.gameOver) {
+      ctx.fillStyle = "rgba(8,12,18,0.6)";
+      roundRect(ctx, fx, fy, FIELD_W, FIELD_H, 6); ctx.fill();
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#f58ad6"; ctx.font = "700 22px system-ui, sans-serif";
+      ctx.fillText("TOP OUT", fx + FIELD_W / 2, fy + FIELD_H / 2);
+    }
+    ctx.restore();
+  }
+
+  function drawPieceCell(ox, oy, col, yWithinField, colorId) {
+    if (yWithinField + CELL <= 0) return;
+    drawCrystal(ctx, ox + col * CELL, oy + yWithinField, CELL, colorId, {});
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // ---- Main loop ----
+  let last = performance.now();
+  function loop(now) {
+    let dt = now - last;
+    last = now;
+    if (dt > 100) dt = 100;
+
+    updateAmbient(dt);
+
+    if (screen === SCREEN.PLAYING && board && cpuBoard && !paused) {
+      cpuCtrl.update(dt);
+      board.update(dt);
+      cpuBoard.update(dt);
+      if (!matchEnded && (board.gameOver || cpuBoard.gameOver)) {
+        matchEnded = true;
+        const playerLost = board.gameOver;
+        elBtnPause.classList.add("hidden");
+        elTouch.classList.add("hidden");
+        stopAllTouchRepeats();
+        setTimeout(function () { endGame(playerLost ? "LOSE" : "WIN"); }, 800);
+      }
+    } else if (screen === SCREEN.RESULT) {
+      if (board) board.updateParticles(dt);
+      if (cpuBoard) cpuBoard.updateParticles(dt);
+    }
+
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  // ---- Boot ----
   bindTouchControls();
   resize();
   showScreen(SCREEN.TITLE);
