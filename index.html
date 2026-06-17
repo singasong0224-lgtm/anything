@@ -146,22 +146,23 @@
   }
   .icon-btn:active { transform: translateY(1px); }
 
-  /* On-screen controller (touch devices only) */
+  /* On-screen controller (touch only). Left: move row. Center: pause. Right: rotate / drop stack. */
   #touch-controls {
     flex: 0 0 auto;
     width: 100%;
     box-sizing: border-box;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
     padding: 10px 12px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
-  .pad { display: flex; gap: 8px; }
+  .pad { display: flex; gap: 8px; align-items: center; }
+  .pad-right { flex-direction: column; }
   .ctl {
-    width: clamp(46px, 14.5vw, 70px);
-    height: clamp(46px, 13vw, 62px);
+    width: clamp(46px, 14.5vw, 68px);
+    height: clamp(46px, 13vw, 60px);
     border-radius: 14px;
     border: 1px solid var(--panel-line);
     background: rgba(20, 28, 38, 0.85);
@@ -182,10 +183,34 @@
     border-color: rgba(95, 208, 200, 0.55);
     transform: translateY(1px);
   }
-  .ctl-hard {
-    background: rgba(95, 208, 200, 0.14);
-    border-color: rgba(95, 208, 200, 0.4);
-    margin-left: 4px;
+  /* Center utility (pause) */
+  .ctl-util {
+    width: clamp(44px, 12vw, 58px);
+    font-size: clamp(14px, 4.4vw, 18px);
+    letter-spacing: 0.1em;
+    opacity: 0.92;
+  }
+  /* Right stack: rotate (highlighted) over drop (prominent) */
+  .ctl-rotate {
+    width: clamp(66px, 21vw, 94px);
+    font-size: clamp(24px, 7.5vw, 32px);
+    background: rgba(95, 208, 200, 0.12);
+    border-color: rgba(95, 208, 200, 0.6);
+    box-shadow: inset 0 0 0 1px rgba(95, 208, 200, 0.25);
+  }
+  .ctl-drop {
+    width: clamp(66px, 21vw, 94px);
+    height: clamp(46px, 12vw, 56px);
+    font-size: clamp(14px, 4.4vw, 18px);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #ffd7e6;
+    background: rgba(214, 73, 138, 0.18);
+    border-color: rgba(214, 73, 138, 0.55);
+  }
+  .ctl-drop:active {
+    background: rgba(214, 73, 138, 0.34);
+    border-color: rgba(214, 73, 138, 0.85);
   }
 </style>
 </head>
@@ -199,13 +224,15 @@
   <div id="touch-controls" class="hidden">
     <div class="pad">
       <button class="ctl" data-act="left" aria-label="左へ">◀</button>
-      <button class="ctl" data-act="right" aria-label="右へ">▶</button>
       <button class="ctl" data-act="soft" aria-label="高速落下">▼</button>
+      <button class="ctl" data-act="right" aria-label="右へ">▶</button>
     </div>
     <div class="pad">
-      <button class="ctl" data-act="rotL" aria-label="左回転">↺</button>
-      <button class="ctl" data-act="rotR" aria-label="右回転">↻</button>
-      <button class="ctl ctl-hard" data-act="hard" aria-label="一気に落とす">⤓</button>
+      <button class="ctl ctl-util" data-act="pause" aria-label="一時停止">❚❚</button>
+    </div>
+    <div class="pad pad-right">
+      <button class="ctl ctl-rotate" data-act="rotR" aria-label="回転">↻</button>
+      <button class="ctl ctl-drop" data-act="hard" aria-label="一気に落とす">↓ DROP</button>
     </div>
   </div>
 
@@ -771,7 +798,8 @@
     elTitle.classList.toggle("hidden", s !== SCREEN.TITLE);
     elResult.classList.toggle("hidden", s !== SCREEN.RESULT);
     elPause.classList.add("hidden");
-    elBtnPause.classList.toggle("hidden", s !== SCREEN.PLAYING);
+    // Floating top-right pause is for desktop; touch uses the controller's pause.
+    elBtnPause.classList.toggle("hidden", s !== SCREEN.PLAYING || isTouch);
     elTouch.classList.toggle("hidden", !(isTouch && s === SCREEN.PLAYING));
     elFooter.classList.toggle("hidden", s !== SCREEN.TITLE);
     resize(); // reflow the canvas now that the controller may have appeared
@@ -785,7 +813,7 @@
     keyHeld.down = false;
     stopAllTouchRepeats();
     elPause.classList.toggle("hidden", !on);
-    elBtnPause.classList.toggle("hidden", on); // hide small button while overlay shows
+    elBtnPause.classList.toggle("hidden", on || isTouch); // desktop-only floating button
     elTouch.classList.toggle("hidden", on || !(isTouch && screen === SCREEN.PLAYING));
   }
 
@@ -1124,6 +1152,7 @@
         case "rotL": board.rotate(-1); break;
         case "rotR": board.rotate(1); break;
         case "hard": board.hardDrop(); break;
+        case "pause": setPaused(true); break;
       }
     }
     function release(act) {
