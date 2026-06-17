@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="SECTOR NOVA: ORB CORE - An SFC-style vertical scrolling shooter game">
+  <title>SECTOR NOVA</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas" width="320" height="480"></canvas>
+  </div>
+
+  <!-- Load order matters: dependencies first -->
+  <script src="src/utils.js"></script>
+  <script src="src/input.js"></script>
+  <script src="src/effects.js"></script>
+  <script src="src/bullet.js"></script>
+  <script src="src/weapon.js"></script>
+  <script src="src/player.js"></script>
+  <script src="src/enemy.js"></script>
+  <script src="src/powerup.js"></script>
+  <script src="src/stage.js"></script>
+  <script src="src/boss.js"></script>
+  <script src="src/game.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>

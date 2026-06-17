@@ -1,0 +1,57 @@
+/* ============================================================
+   SECTOR NOVA - Styles
+   SFC-style pixelated look with centered canvas
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  font-family: monospace;
+}
+
+#game-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 8px;
+  overflow: hidden;
+  touch-action: none;
+  background: radial-gradient(ellipse at center, #0a0a2e 0%, #000000 100%);
+}
+
+#gameCanvas {
+  /* Pixel-perfect upscaling */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  /* Scale up to fit viewport while maintaining aspect ratio */
+  width: min(calc(100vw - 16px), calc((100vh - 16px) * 2 / 3), 640px);
+  width: min(calc(100vw - 16px), calc((100dvh - 16px) * 2 / 3), 640px);
+  height: auto;
+  max-height: 960px;
+  aspect-ratio: 320 / 480;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Subtle border glow */
+  border: 2px solid #1a1a3a;
+  box-shadow: 0 0 30px rgba(50, 50, 150, 0.3),
+              0 0 60px rgba(30, 30, 100, 0.15);
+}
