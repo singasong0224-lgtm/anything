@@ -156,7 +156,9 @@
     justify-content: space-between;
     gap: 8px;
     padding: 10px 12px;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    /* Lift the whole controller up off the bottom edge so it's easy to reach.
+       Scales with screen height: taller phones get more lift, short ones keep a minimum. */
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(26px, 9vh, 84px));
   }
   .pad { display: flex; gap: 8px; align-items: center; }
   .pad-right { flex-direction: column; }
