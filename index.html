@@ -238,7 +238,7 @@
   <!-- Title -->
   <div class="overlay" id="overlay-title">
     <h1 class="title-name">ZeroDrop</h1>
-    <p class="subtle">同じ色のクリスタルを4つ以上つなげて消す。<br>連鎖でおじゃまを送り、相手を埋めろ。</p>
+    <p class="subtle">同じ色のクリスタルを4つ以上つなげて消す。<br>連鎖でシャードを送り、相手を埋めろ。</p>
     <p class="subtle" style="margin-bottom:-6px;">難易度を選んでスタート</p>
     <div class="row">
       <button class="btn" data-diff="EASY">EASY</button>
@@ -295,7 +295,7 @@
   const SPAWN_COL = 2;
 
   const EMPTY = 0;
-  const OJAMA = 9; // neutral garbage block
+  const SHARD = 9; // neutral garbage block
 
   const COLORS = {
     1: { core: "#7ff0ec", edge: "#1fb9b0", glow: "#9ffff9" }, // cyan
@@ -303,7 +303,7 @@
     3: { core: "#f6e07a", edge: "#caa023", glow: "#fff0a8" }, // yellow
     4: { core: "#a7e87a", edge: "#5fae2f", glow: "#c8ffa0" }, // lime
     5: { core: "#f6a96a", edge: "#cc6a1f", glow: "#ffc999" }, // orange
-    9: { core: "#7c8694", edge: "#454e5a", glow: "#9aa4b2" }, // ojama (gray)
+    9: { core: "#7c8694", edge: "#454e5a", glow: "#9aa4b2" }, // shard (gray)
   };
 
   // ---- Timing ----------------------------------------------------------
@@ -344,8 +344,9 @@
   // All item tuning lives here so feel can be adjusted in one place.
   const ITEM_CONFIG = {
     enabled: true,         // chain-reward item spawning is live
-    chain2Rate: 0.15,      // P(next piece gets an item) after a 2+ chain
-    chain4Rate: 0.30,      // ... after a 4+ chain
+    chain2Rate: 0.40,      // P(next piece gets an item) after a 2+ chain
+    chain3Rate: 0.60,      // ... after a 3+ chain
+    chain4Rate: 0.80,      // ... after a 4+ chain
     maxOnBoard: 2,         // guard: persistent items (rainbow/bomb/charge) on a board
     weights: [             // even by default; retune per item later
       { type: ITEM.RAINBOW, w: 1 },
@@ -402,7 +403,7 @@
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const v = grid[r][c];
-        if (v === EMPTY || v === OJAMA || seen[r][c]) continue;
+        if (v === EMPTY || v === SHARD || seen[r][c]) continue;
         const stack = [[r, c]];
         seen[r][c] = true;
         const group = [];
@@ -433,12 +434,12 @@
       chain++;
       for (const g of groups) {
         for (const cell of g) {
-          // remove adjacent ojama too (matches Board.finishClearing)
+          // remove adjacent shard too (matches Board.finishClearing)
           const nb = [[cell.row - 1, cell.col], [cell.row + 1, cell.col],
                       [cell.row, cell.col - 1], [cell.row, cell.col + 1]];
           for (const n of nb) {
             const nr = n[0], nc = n[1];
-            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === OJAMA) {
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === SHARD) {
               grid[nr][nc] = EMPTY;
             }
           }
@@ -508,7 +509,7 @@
       this.chain = 0;
       this.maxChain = 0;
       this.chainScore = 0;        // score accumulated during current resolution
-      this.pendingGarbage = 0;    // ojama waiting to drop on this board
+      this.pendingGarbage = 0;    // shard waiting to drop on this board
       this.garbageCarry = 0;      // fractional garbage carried between attacks
       this.gauge = 0;             // disruption gauge (fills from chains)
       this.debuffs = { flip: 0, mirror: 0, blackout: 0, speed: 0, shuffle: 0 }; // remaining ms
@@ -652,7 +653,7 @@
       const isRainbow = function (r, c) { return items[r][c] === ITEM.RAINBOW; };
       const member = function (r, c, X) {
         const v = grid[r][c];
-        if (v === EMPTY || v === OJAMA) return false;
+        if (v === EMPTY || v === SHARD) return false;
         return v === X || isRainbow(r, c);
       };
       const groups = [];
@@ -729,6 +730,7 @@
       if (!ITEM_CONFIG.enabled || this.nextItemPending) return;
       let rate = 0;
       if (chain >= 4) rate = ITEM_CONFIG.chain4Rate;
+      else if (chain >= 3) rate = ITEM_CONFIG.chain3Rate;
       else if (chain >= 2) rate = ITEM_CONFIG.chain2Rate;
       if (rate <= 0) return;
       if (this.countBoardItems() >= ITEM_CONFIG.maxOnBoard) return;
@@ -770,23 +772,23 @@
         }
       }
 
-      // Existing rule: ojama adjacent to a matched cell is knocked out.
+      // Existing rule: shard adjacent to a matched cell is knocked out.
       for (const k of matched) {
         const r = Math.floor(k / COLS), c = k % COLS;
         const nb = [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
         for (const n of nb) {
           const nr = n[0], nc = n[1];
-          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.grid[nr][nc] === OJAMA) removal.add(nr * COLS + nc);
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.grid[nr][nc] === SHARD) removal.add(nr * COLS + nc);
         }
       }
 
-      // Score counts cleared NON-ojama cells (bomb collateral included;
-      // ojama removal stays unscored, as before).
+      // Score counts cleared NON-shard cells (bomb collateral included;
+      // shard removal stays unscored, as before).
       let scoreCount = 0;
       this.clearing = [];
       for (const k of removal) {
         const r = Math.floor(k / COLS), c = k % COLS;
-        if (this.grid[r][c] !== OJAMA) scoreCount++;
+        if (this.grid[r][c] !== SHARD) scoreCount++;
         // チャージコア: clearing one pumps the disruption gauge hard.
         if (this.items[r][c] === ITEM.CHARGE) this.chargeBonusThisChain += ITEM_CONFIG.chargeGaugeBonus;
         this.clearing.push({ row: r, col: c });
@@ -839,7 +841,7 @@
 
     finishClearing() {
       // beginResolve already computed the full removal set (matched cells +
-      // bomb collateral + knocked-out ojama). Just shatter and clear them.
+      // bomb collateral + knocked-out shard). Just shatter and clear them.
       for (const cell of this.clearing) {
         const v = this.grid[cell.row][cell.col];
         if (v !== EMPTY) this.spawnShatter(cell.col, cell.row, v);
@@ -897,7 +899,7 @@
       for (let c = 0; c < COLS; c++) {
         let add = per + (extra.has(c) ? 1 : 0);
         let dr = this.dropRowOf(c);
-        while (add > 0 && dr >= 0) { this.grid[dr][c] = OJAMA; this.items[dr][c] = ITEM.NONE; dr--; add--; }
+        while (add > 0 && dr >= 0) { this.grid[dr][c] = SHARD; this.items[dr][c] = ITEM.NONE; dr--; add--; }
       }
       this.applyGravity();
       if (n > 0) this.emit("garbage", { n: n });
@@ -990,7 +992,7 @@
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const v = g[r][c];
-        if (v === EMPTY || v === OJAMA) continue;
+        if (v === EMPTY || v === SHARD) continue;
         if (c + 1 < COLS && g[r][c + 1] === v) adj++;
         if (r + 1 < ROWS && g[r + 1][c] === v) adj++;
       }
@@ -1121,8 +1123,8 @@
     }
     ctx.closePath(); ctx.stroke();
 
-    // Ojama: dark cracks so it reads as "neutral / locked".
-    if (colorId === OJAMA) {
+    // Shard: dark cracks so it reads as "neutral / locked".
+    if (colorId === SHARD) {
       ctx.lineWidth = Math.max(1, size * 0.04);
       ctx.strokeStyle = hexA("#1b2026", 0.8 * alpha);
       ctx.beginPath();
@@ -1513,7 +1515,7 @@
     ctx.fillText(String(b.score), ox + 12, oy + 42);
     if (b.pendingGarbage > 0) {
       ctx.fillStyle = "#ffb86b"; ctx.font = "600 12px system-ui, sans-serif";
-      ctx.fillText("おじゃま +" + b.pendingGarbage, ox + 12, oy + 58);
+      ctx.fillText("シャード +" + b.pendingGarbage, ox + 12, oy + 58);
     }
 
     // NEXT (faked while under シャッフル)
