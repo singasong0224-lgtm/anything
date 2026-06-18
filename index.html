@@ -715,22 +715,56 @@
       this.chain += 1;
       if (this.chain > this.maxChain) this.maxChain = this.chain;
 
-      // Dedupe cells (a rainbow can belong to more than one colour group).
-      const seen = new Set();
-      this.clearing = [];
-      for (const g of groups) {
-        for (const cell of g) {
-          const k = cell.row * COLS + cell.col;
-          if (seen.has(k)) continue;
-          seen.add(k); this.clearing.push(cell);
+      // Matched cells (a rainbow can appear in several colour groups -> dedupe).
+      const matched = new Set();
+      for (const g of groups) for (const cell of g) matched.add(cell.row * COLS + cell.col);
+
+      // Everything that will vanish this step starts as the matched cells.
+      const removal = new Set(matched);
+
+      // ボムクリスタル: a cleared bomb takes its 4 neighbours with it
+      // (any cell, colour-agnostic), and the blast propagates through bombs.
+      const bombQ = [];
+      for (const k of matched) {
+        const r = Math.floor(k / COLS), c = k % COLS;
+        if (this.items[r][c] === ITEM.BOMB) bombQ.push(k);
+      }
+      while (bombQ.length) {
+        const k = bombQ.pop(), r = Math.floor(k / COLS), c = k % COLS;
+        const nb = [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+        for (const n of nb) {
+          const nr = n[0], nc = n[1];
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+          if (this.grid[nr][nc] === EMPTY) continue;
+          const nk = nr * COLS + nc;
+          if (!removal.has(nk)) { removal.add(nk); if (this.items[nr][nc] === ITEM.BOMB) bombQ.push(nk); }
         }
       }
-      const count = this.clearing.length;
+
+      // Existing rule: ojama adjacent to a matched cell is knocked out.
+      for (const k of matched) {
+        const r = Math.floor(k / COLS), c = k % COLS;
+        const nb = [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+        for (const n of nb) {
+          const nr = n[0], nc = n[1];
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && this.grid[nr][nc] === OJAMA) removal.add(nr * COLS + nc);
+        }
+      }
+
+      // Score counts cleared NON-ojama cells (bomb collateral included;
+      // ojama removal stays unscored, as before).
+      let scoreCount = 0;
+      this.clearing = [];
+      for (const k of removal) {
+        const r = Math.floor(k / COLS), c = k % COLS;
+        if (this.grid[r][c] !== OJAMA) scoreCount++;
+        this.clearing.push({ row: r, col: c });
+      }
       const bonus = Math.pow(2, this.chain - 1);
-      const stepScore = Math.round(count * 10 * bonus);
+      const stepScore = Math.round(scoreCount * 10 * bonus);
       this.score += stepScore;
       this.chainScore += stepScore;
-      this.emit("clear", { chain: this.chain, count: count });
+      this.emit("clear", { chain: this.chain, count: scoreCount });
       if (this.chain >= 2) this.chainPopup = { text: this.chain + " 連鎖!", t: 1000 };
 
       this.phase = "clearing";
@@ -773,29 +807,13 @@
     }
 
     finishClearing() {
-      // Ojama adjacent to a cleared cell get knocked out (one hit).
-      const ojamaOut = new Set();
-      for (const cell of this.clearing) {
-        const nb = [[cell.row - 1, cell.col], [cell.row + 1, cell.col],
-                    [cell.row, cell.col - 1], [cell.row, cell.col + 1]];
-        for (const n of nb) {
-          const r = n[0], c = n[1];
-          if (r >= 0 && r < ROWS && c >= 0 && c < COLS && this.grid[r][c] === OJAMA) {
-            ojamaOut.add(r * COLS + c);
-          }
-        }
-      }
+      // beginResolve already computed the full removal set (matched cells +
+      // bomb collateral + knocked-out ojama). Just shatter and clear them.
       for (const cell of this.clearing) {
         const v = this.grid[cell.row][cell.col];
-        this.spawnShatter(cell.col, cell.row, v);
+        if (v !== EMPTY) this.spawnShatter(cell.col, cell.row, v);
         this.grid[cell.row][cell.col] = EMPTY;
         this.items[cell.row][cell.col] = ITEM.NONE;
-      }
-      for (const key of ojamaOut) {
-        const r = Math.floor(key / COLS), c = key % COLS;
-        this.spawnShatter(c, r, OJAMA);
-        this.grid[r][c] = EMPTY;
-        this.items[r][c] = ITEM.NONE;
       }
       this.clearing = [];
       this.applyGravity();
