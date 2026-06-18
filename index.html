@@ -758,6 +758,8 @@
       for (const k of removal) {
         const r = Math.floor(k / COLS), c = k % COLS;
         if (this.grid[r][c] !== OJAMA) scoreCount++;
+        // チャージコア: clearing one pumps the disruption gauge hard.
+        if (this.items[r][c] === ITEM.CHARGE) this.chargeBonusThisChain += ITEM_CONFIG.chargeGaugeBonus;
         this.clearing.push({ row: r, col: c });
       }
       const bonus = Math.pow(2, this.chain - 1);
