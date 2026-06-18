@@ -643,7 +643,45 @@
         }
       }
     }
-    findGroups() { return gridFindGroups(this.grid); }
+    // Connected same-colour groups (>=4). レインボークリスタル counts as a
+    // wild member of every colour, so it can complete an adjacent group of
+    // any colour (but never merges two different colours together).
+    // With no rainbows present this is identical to the plain colour flood.
+    findGroups() {
+      const grid = this.grid, items = this.items;
+      const isRainbow = function (r, c) { return items[r][c] === ITEM.RAINBOW; };
+      const member = function (r, c, X) {
+        const v = grid[r][c];
+        if (v === EMPTY || v === OJAMA) return false;
+        return v === X || isRainbow(r, c);
+      };
+      const groups = [];
+      for (let X = 1; X <= NUM_COLORS; X++) {
+        const seen = [];
+        for (let r = 0; r < ROWS; r++) seen.push(new Array(COLS).fill(false));
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (seen[r][c] || !member(r, c, X)) continue;
+            const stack = [[r, c]]; seen[r][c] = true;
+            const comp = []; let hasReal = false;
+            while (stack.length) {
+              const cur = stack.pop(), cr = cur[0], cc = cur[1];
+              comp.push({ row: cr, col: cc });
+              if (!isRainbow(cr, cc) && grid[cr][cc] === X) hasReal = true;
+              const nb = [[cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]];
+              for (const n of nb) {
+                const nr = n[0], nc = n[1];
+                if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || seen[nr][nc]) continue;
+                if (member(nr, nc, X)) { seen[nr][nc] = true; stack.push([nr, nc]); }
+              }
+            }
+            // Needs a real colour anchor (a pure-rainbow blob doesn't clear).
+            if (comp.length >= 4 && hasReal) groups.push(comp);
+          }
+        }
+      }
+      return groups;
+    }
 
     // Items consumed the moment they land (shatter / gravity drop).
     // Filled in by their respective Phase-5 steps; harmless no-op until then.
@@ -677,11 +715,17 @@
       this.chain += 1;
       if (this.chain > this.maxChain) this.maxChain = this.chain;
 
-      let count = 0;
+      // Dedupe cells (a rainbow can belong to more than one colour group).
+      const seen = new Set();
       this.clearing = [];
       for (const g of groups) {
-        for (const cell of g) { this.clearing.push(cell); count += 1; }
+        for (const cell of g) {
+          const k = cell.row * COLS + cell.col;
+          if (seen.has(k)) continue;
+          seen.add(k); this.clearing.push(cell);
+        }
       }
+      const count = this.clearing.length;
       const bonus = Math.pow(2, this.chain - 1);
       const stepScore = Math.round(count * 10 * bonus);
       this.score += stepScore;
