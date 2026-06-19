@@ -1289,8 +1289,11 @@
                 if (candidates.length === 0) return null;
                 candidates.sort((a, b) => b.score - a.score);
                 if (Math.random() < this.cpuBestRate) return candidates[0];
-                // Weakness: pick a random legal placement instead of the best.
-                return candidates[Math.floor(Math.random() * candidates.length)];
+                // Weakness: pick a slightly sub-optimal move from the BETTER ones,
+                // never a board-wrecking random one (this is what made the CPU
+                // self-topple). Sorted desc, so top-K excludes the suicidal moves.
+                const topK = Math.max(3, Math.ceil(candidates.length * 0.25));
+                return candidates[Math.floor(Math.random() * topK)];
             }
 
             cpuSimulateDrop(mat, x) {
@@ -1500,11 +1503,11 @@
 
         // CPU strength per stage (initial values; tune by playing).
         const STAGE_SETTINGS = {
-            1: { interval: 800, best: 0.60 },
-            2: { interval: 700, best: 0.70 },
-            3: { interval: 600, best: 0.80 },
-            4: { interval: 480, best: 0.90 },
-            5: { interval: 380, best: 1.00 },
+            1: { interval: 700, best: 0.80 },
+            2: { interval: 600, best: 0.88 },
+            3: { interval: 520, best: 0.93 },
+            4: { interval: 440, best: 0.97 },
+            5: { interval: 360, best: 1.00 },
         };
 
         const startOverlay = document.getElementById('startOverlay');
@@ -1693,15 +1696,19 @@
 
         document.addEventListener('keydown', event => {
             if (!canControl()) return;
+            let handled = true;
             switch (event.keyCode) {
                 case 37: case 65: playerBoard.move(-1); break;          // Left / A
                 case 39: case 68: playerBoard.move(1); break;           // Right / D
                 case 40: case 83: playerBoard.gravityStep(); break;     // Down / S (soft drop)
                 case 38: case 87: case 13: playerBoard.rotatePiece(1); break; // Up / W / Enter
-                case 32: event.preventDefault(); playerBoard.hardDrop(); break; // Space
+                case 32: playerBoard.hardDrop(); break;                 // Space
                 case 67: case 16: playerBoard.hold(); break;            // C / Shift
                 case 82: playerBoard.reroll(); break;                   // R
+                default: handled = false;
             }
+            // Stop the browser from scrolling the page on arrows / space etc.
+            if (handled) event.preventDefault();
         });
 
         // ---- Mobile controls ----
