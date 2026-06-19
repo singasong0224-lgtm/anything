@@ -1468,6 +1468,11 @@
             ctx.save();
             ctx.translate(ox, oy);
             ctx.scale(scale, scale);
+            // Clip to the field so a piece spawning above the top row (y = -1)
+            // never pokes out above the board frame / into the HUD.
+            ctx.beginPath();
+            ctx.rect(0, 0, COLS * BLOCK_SIZE, ROWS * BLOCK_SIZE);
+            ctx.clip();
             drawGridLines(ctx);
             b.grid.forEach((row, y) => {
                 row.forEach((value, x) => {
