@@ -607,8 +607,8 @@
     <!-- Mobile Button Controller -->
     <div class="mobile-controls">
         <div class="control-btn" id="mHold">キープ</div>
-        <div class="control-btn" id="mRotate">回転</div>
         <div class="control-btn" id="mHardDrop">一瞬落下</div>
+        <div class="control-btn" id="mRotate">回転</div>
         <div class="control-btn" id="mLeft">←</div>
         <div class="control-btn" id="mDown">↓</div>
         <div class="control-btn" id="mRight">→</div>
@@ -1852,9 +1852,32 @@
             el.addEventListener('touchstart', e => { e.preventDefault(); if (canControl()) fn(); });
             el.addEventListener('click', () => { if (canControl()) fn(); });
         }
-        bindBtn('mLeft', () => playerBoard.move(-1));
-        bindBtn('mRight', () => playerBoard.move(1));
-        bindBtn('mDown', () => playerBoard.gravityStep());
+
+        // Press-and-hold auto-repeat for the directional buttons (move/soft-drop):
+        // fire once on press, then repeat while held until release.
+        function bindRepeatBtn(id, fn, delay, rate) {
+            const el = document.getElementById(id);
+            let startT = null, repeatT = null;
+            const stop = () => { clearTimeout(startT); clearInterval(repeatT); startT = null; repeatT = null; };
+            const start = (e) => {
+                if (e) e.preventDefault();
+                if (!canControl()) return;
+                stop();
+                fn();
+                startT = setTimeout(() => {
+                    repeatT = setInterval(() => { if (canControl()) fn(); else stop(); }, rate);
+                }, delay);
+            };
+            el.addEventListener('touchstart', start, { passive: false });
+            el.addEventListener('touchend', stop);
+            el.addEventListener('touchcancel', stop);
+            el.addEventListener('mousedown', start);
+            el.addEventListener('mouseup', stop);
+            el.addEventListener('mouseleave', stop);
+        }
+        bindRepeatBtn('mLeft', () => playerBoard.move(-1), 200, 70);
+        bindRepeatBtn('mRight', () => playerBoard.move(1), 200, 70);
+        bindRepeatBtn('mDown', () => playerBoard.gravityStep(), 90, 45);
         bindBtn('mRotate', () => playerBoard.rotatePiece(1));
         bindBtn('mHardDrop', () => playerBoard.hardDrop());
         bindBtn('mHold', () => playerBoard.hold());
